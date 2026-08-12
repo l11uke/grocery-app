@@ -63,6 +63,16 @@ def api_confirm():
     })
 
 
+@app.route("/shopping-lists")
+def shopping_lists():
+    return render_template("shopping_lists.html")
+
+
+@app.route("/api/shopping-lists")
+def api_shopping_lists():
+    return jsonify(db.get_shopping_lists())
+
+
 @app.route("/api/insights")
 def api_insights():
     return jsonify({

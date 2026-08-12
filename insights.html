@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grocery Insights</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; background: #f7f7f5; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1rem; margin-top: 24px; }
+  nav a { font-size: 0.9rem; color: #555; text-decoration: none; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #ddd; }
+  .bar-bg { background: #e5e7eb; border-radius: 4px; height: 10px; overflow: hidden; }
+  .bar-fg { background: #2563eb; height: 100%; }
+</style>
+</head>
+<body>
+<nav><a href="/">Upload</a> &nbsp;|&nbsp; <a href="/insights" class="active">Insights</a> &nbsp;|&nbsp; <a href="/shopping-lists">Shopping Lists</a></nav>
+<h1>Insights</h1>
+
+<h2>Spend by Category</h2>
+<table id="catTable"><thead><tr><th>Category</th><th>Total</th><th>Items</th></tr></thead><tbody></tbody></table>
+
+<h2>Recurring Items (subscription candidates)</h2>
+<table id="recTable">
+  <thead><tr><th>Item</th><th>Times Bought</th><th>Avg $</th><th>Last Seen</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<script>
+fetch('/api/insights').then(r => r.json()).then(data => {
+  const catBody = document.querySelector('#catTable tbody');
+  const maxTotal = Math.max(...data.category_totals.map(c => c.total), 1);
+  data.category_totals.forEach(c => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${c.category}<div class="bar-bg"><div class="bar-fg" style="width:${(c.total/maxTotal*100).toFixed(0)}%"></div></div></td>
+                     <td>$${c.total.toFixed(2)}</td><td>${c.n}</td>`;
+    catBody.appendChild(tr);
+  });
+
+  const recBody = document.querySelector('#recTable tbody');
+  if (data.recurring_items.length === 0) {
+    recBody.innerHTML = '<tr><td colspan="4">Not enough history yet (need 3+ purchases of the same item).</td></tr>';
+  }
+  data.recurring_items.forEach(i => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i.name}</td><td>${i.purchase_count}</td><td>$${i.avg_spend.toFixed(2)}</td><td>${i.last_seen}</td>`;
+    recBody.appendChild(tr);
+  });
+});
+</script>
+</body>
+</html>

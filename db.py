@@ -62,28 +62,155 @@ def get_category_totals():
     return [dict(r) for r in rows]
 
 
-def get_recurring_items(min_occurrences=3):
-    """Items purchased on >= min_occurrences distinct receipts, with frequency stats."""
+def _compute_item_intervals(min_occurrences=3):
+    """Shared helper: pulls every (name, category) item group, computes
+    purchase intervals and CV, and splits into 'scored' (enough data to
+    judge regularity) vs 'insufficient' (not enough purchases yet).
+
+    Used by both get_recurring_items() and get_shopping_lists() so the
+    interval math lives in exactly one place.
+    """
     conn = get_conn()
     rows = conn.execute(
         """
-        SELECT
-            i.name,
-            i.category,
-            COUNT(DISTINCT i.receipt_id) AS purchase_count,
-            ROUND(AVG(i.line_total), 2) AS avg_spend,
-            MIN(r.purchase_date) AS first_seen,
-            MAX(r.purchase_date) AS last_seen
+        SELECT i.name, i.category, r.purchase_date, i.line_total
         FROM items i
         JOIN receipts r ON r.id = i.receipt_id
-        GROUP BY i.name, i.category
-        HAVING purchase_count >= ?
-        ORDER BY purchase_count DESC
-        """,
-        (min_occurrences,)
+        ORDER BY i.name, i.category, r.purchase_date
+        """
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    from collections import defaultdict
+    from datetime import date
+    from statistics import mean, stdev
+
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[(row["name"], row["category"])].append(row)
+
+    scored, insufficient = [], []
+    for (name, category), item_rows in grouped.items():
+        dates = sorted({date.fromisoformat(r["purchase_date"]) for r in item_rows})
+        purchase_count = len(dates)
+        avg_spend = round(mean(r["line_total"] for r in item_rows), 2)
+        first_seen, last_seen = dates[0].isoformat(), dates[-1].isoformat()
+
+        if purchase_count < min_occurrences:
+            insufficient.append({
+                "name": name,
+                "category": category,
+                "purchase_count": purchase_count,
+                "avg_spend": avg_spend,
+                "first_seen": first_seen,
+                "last_seen": last_seen,
+            })
+            continue
+
+        gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+        avg_interval_days = round(mean(gaps), 1)
+        if len(gaps) >= 2 and avg_interval_days > 0:
+            interval_cv = round(stdev(gaps) / avg_interval_days, 2)
+        else:
+            interval_cv = None  # only one gap — no variance computable
+
+        scored.append({
+            "name": name,
+            "category": category,
+            "purchase_count": purchase_count,
+            "avg_spend": avg_spend,
+            "avg_interval_days": avg_interval_days,
+            "interval_cv": interval_cv,
+            "first_seen": first_seen,
+            "last_seen": last_seen,
+        })
+
+    return scored, insufficient
+
+
+def get_recurring_items(min_occurrences=3, max_interval_cv=0.5):
+    """Items with enough purchase history, scored by how *regular* the
+    purchase interval is — not just how often. See _compute_item_intervals
+    for the interval/CV math."""
+    scored, _ = _compute_item_intervals(min_occurrences)
+    for item in scored:
+        item["is_replenish_candidate"] = (
+            item["interval_cv"] is not None and item["interval_cv"] <= max_interval_cv
+        )
+    scored.sort(key=lambda r: (not r["is_replenish_candidate"], -r["purchase_count"]))
+    return scored
+
+
+# Interval bands, in days. An item's avg_interval_days falls into exactly
+# one band based on the closest match; CV still has to clear max_interval_cv
+# or it goes to "irregular" instead of a cadence list, regardless of how
+# well the average lines up.
+INTERVAL_BANDS = [
+    ("weekly", 5, 9),
+    ("fortnightly", 10, 20),
+    ("monthly", 21, 45),
+]
+
+
+def get_shopping_lists(min_occurrences=3, max_interval_cv=0.5):
+    """Buckets every item with enough history into weekly / fortnightly /
+    monthly ordering cadences, based on average purchase interval and
+    regularity (CV). No category is excluded — fresh produce/meat stay in
+    the dataset since the in-store-vs-online call is made at order time,
+    not baked into the list logic.
+
+    Returns:
+      weekly       — band-matched items, band-appropriate for every list
+      fortnightly  — weekly ∪ items matched to the fortnightly band
+      monthly      — fortnightly ∪ items matched to the monthly band
+      irregular    — enough purchase history, but CV too high or interval
+                     falls outside all bands (e.g. >45 days) — surfaced
+                     separately so nothing is silently dropped
+      insufficient_data — fewer than min_occurrences purchases so far
+    """
+    scored, insufficient = _compute_item_intervals(min_occurrences)
+
+    weekly, fortnightly_only, monthly_only, irregular = [], [], [], []
+
+    for item in scored:
+        cv = item["interval_cv"]
+        avg = item["avg_interval_days"]
+        is_regular = cv is not None and cv <= max_interval_cv
+
+        band = None
+        if is_regular:
+            for band_name, lo, hi in INTERVAL_BANDS:
+                if lo <= avg <= hi:
+                    band = band_name
+                    break
+
+        if band == "weekly":
+            weekly.append(item)
+        elif band == "fortnightly":
+            fortnightly_only.append(item)
+        elif band == "monthly":
+            monthly_only.append(item)
+        else:
+            # Either irregular (high CV) or outside all bands (e.g. avg
+            # interval > 45 days, or < 5 days which is unusually frequent).
+            irregular.append(item)
+
+    def _sort(items):
+        return sorted(items, key=lambda r: r["avg_interval_days"])
+
+    weekly = _sort(weekly)
+    fortnightly = _sort(weekly + fortnightly_only)
+    monthly = _sort(fortnightly + monthly_only)
+    irregular = sorted(irregular, key=lambda r: -r["purchase_count"])
+    insufficient_data = sorted(insufficient, key=lambda r: -r["purchase_count"])
+
+    return {
+        "weekly": weekly,
+        "fortnightly": fortnightly,
+        "monthly": monthly,
+        "irregular": irregular,
+        "insufficient_data": insufficient_data,
+    }
 
 
 def get_all_receipts():
