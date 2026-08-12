@@ -8,16 +8,17 @@ No chat, no external client, no dependency on this conversation continuing to ex
 
 ## Purpose
 
-This app's job is to reduce in-store shopping trips. The immediate reason: pushing
-a shopping trolley is difficult due to a lifelong hip injury, so cutting unnecessary
-supermarket visits saves both time and physical strain.
+The idea: this app helps a household introduce online grocery shopping in a
+more consistent, structured way, for situations where going to the store
+regularly isn't possible or desirable.
 
-Fresh produce and meat/seafood stay an in-store purchase, bought as needed, since
-quality varies too much item-to-item to trust to an online order sight-unseen.
-Packaged, interchangeable pantry and household items are the target for moving
-online — but the app deliberately doesn't hard-exclude any category. Fresh items
-stay in the dataset and can still appear on generated lists; the in-store-vs-online
-call is made by hand at order time, not baked into the logic.
+Fresh produce and meat/seafood are treated as an in-store purchase, bought as
+needed, since quality varies too much item-to-item to trust to an online order
+sight-unseen. Packaged, interchangeable pantry and household items are the
+target for moving online — but the app deliberately doesn't hard-exclude any
+category. Fresh items stay in the dataset and can still appear on generated
+lists; the in-store-vs-online call is made by hand at order time, not baked
+into the logic.
 
 The dataset — built from photographed receipts — exists to answer one practical
 question: *what do we actually buy regularly enough to put on a recurring online
