@@ -1,0 +1,15 @@
+[Unit]
+Description=Grocery receipt tracker
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/grocery-app
+EnvironmentFile=/home/pi/grocery-app/.env
+ExecStart=/home/pi/grocery-app/venv/bin/python /home/pi/grocery-app/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
