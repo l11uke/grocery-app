@@ -73,42 +73,46 @@ Rules:
 """
 
 
+def _call_extraction(model: str, b64: str, media_type: str):
+    return client.messages.create(
+        model=model,
+        max_tokens=8192,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+                    {"type": "text", "text": PROMPT},
+                ],
+            }
+        ],
+    )
+
+
 def extract_receipt(image_bytes: bytes, media_type: str = "image/jpeg") -> dict:
     b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
 
     model = resolve_model()
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=2000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                        {"type": "text", "text": PROMPT},
-                    ],
-                }
-            ],
-        )
+        response = _call_extraction(model, b64, media_type)
     except NotFoundError:
         # Cached model got deprecated mid-run (rare, but happens on long
         # uptimes). Drop it, re-resolve, retry once.
         global _resolved_model
         _resolved_model = None
         model = resolve_model()
-        response = client.messages.create(
-            model=model,
-            max_tokens=2000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                        {"type": "text", "text": PROMPT},
-                    ],
-                }
-            ],
+        response = _call_extraction(model, b64, media_type)
+
+    if response.stop_reason == "max_tokens":
+        # The model ran out of output budget mid-response — the JSON is
+        # guaranteed incomplete. Fail with a clear reason instead of
+        # letting json.loads() throw an "unterminated string" error that
+        # gives no hint about what actually went wrong.
+        raise ValueError(
+            "Extraction failed: the receipt is long enough that the "
+            "model's response was cut off before finishing (hit the "
+            "max_tokens limit). Try again, or increase max_tokens in "
+            "extraction.py if this keeps happening on large receipts."
         )
 
     text = "".join(block.text for block in response.content if block.type == "text")
