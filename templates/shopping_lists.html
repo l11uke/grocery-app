@@ -54,8 +54,16 @@
 <table><thead><tr><th>Item</th><th>Category</th><th>Times Bought</th><th>Avg $</th></tr></thead><tbody id="irregularBody"></tbody></table>
 
 <h2>Not Enough Data Yet</h2>
-<p class="hint">Fewer than 3 purchases logged so far — needs more receipts before a pattern can be judged.</p>
-<table><thead><tr><th>Item</th><th>Category</th><th>Times Bought</th></tr></thead><tbody id="insufficientBody"></tbody></table>
+<p class="hint">Fewer than 3 purchases logged so far — needs more receipts before a pattern can be judged. Check the boxes on items that are really the same thing (e.g. different brands of parmesan) and merge them under one name.</p>
+<div id="mergeControls" style="display:none; margin: 8px 0; padding: 8px; background: #eef2ff; border-radius: 6px;">
+  <input type="text" id="mergeTargetName" placeholder="Merge selected as..." style="width: 60%; padding: 6px; font-size: 0.85rem;">
+  <button id="mergeBtn" class="tab-btn" style="width: auto; padding: 6px 12px;">Merge</button>
+</div>
+<table><thead><tr><th></th><th>Item</th><th>Category</th><th>Times Bought</th></tr></thead><tbody id="insufficientBody"></tbody></table>
+
+<h2>Manual Item Aliases</h2>
+<p class="hint">Merges you've set up by hand. Delete one if it turns out to be wrong.</p>
+<table><thead><tr><th>Raw name</th><th>Merged as</th><th></th></tr></thead><tbody id="aliasesBody"></tbody></table>
 
 <script>
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -66,6 +74,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.getElementById(btn.dataset.tab).classList.add('active');
   });
 });
+
+let insufficientItems = [];
 
 fetch('/api/shopping-lists').then(r => r.json()).then(data => {
   function fillCadence(bodyId, items) {
@@ -95,16 +105,87 @@ fetch('/api/shopping-lists').then(r => r.json()).then(data => {
     irregularBody.appendChild(tr);
   });
 
-  const insufficientBody = document.getElementById('insufficientBody');
-  if (data.insufficient_data.length === 0) {
-    insufficientBody.innerHTML = '<tr><td colspan="3">Nothing here yet.</td></tr>';
-  }
-  data.insufficient_data.forEach(i => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${i.name}</td><td>${i.category}</td><td>${i.purchase_count}</td>`;
-    insufficientBody.appendChild(tr);
-  });
+  insufficientItems = data.insufficient_data;
+  renderInsufficient();
 });
+
+function renderInsufficient() {
+  const body = document.getElementById('insufficientBody');
+  body.innerHTML = '';
+  if (insufficientItems.length === 0) {
+    body.innerHTML = '<tr><td colspan="4">Nothing here yet.</td></tr>';
+    return;
+  }
+  insufficientItems.forEach((i, idx) => {
+    const tr = document.createElement('tr');
+    // raw_names may hold multiple already-merged variants — store all of
+    // them on the checkbox so a further merge captures every one.
+    const rawNamesJson = JSON.stringify(i.raw_names || [i.name]).replace(/"/g, '&quot;');
+    tr.innerHTML = `<td><input type="checkbox" class="mergeCheckbox" data-raw-names="${rawNamesJson}"></td><td>${i.name}</td><td>${i.category}</td><td>${i.purchase_count}</td>`;
+    body.appendChild(tr);
+  });
+
+  document.querySelectorAll('.mergeCheckbox').forEach(cb => {
+    cb.addEventListener('change', updateMergeControlsVisibility);
+  });
+}
+
+function updateMergeControlsVisibility() {
+  const checked = document.querySelectorAll('.mergeCheckbox:checked');
+  document.getElementById('mergeControls').style.display = checked.length >= 2 ? 'block' : 'none';
+}
+
+document.getElementById('mergeBtn').addEventListener('click', () => {
+  const targetName = document.getElementById('mergeTargetName').value.trim();
+  if (!targetName) {
+    alert('Type a name to merge these items under.');
+    return;
+  }
+  const checked = document.querySelectorAll('.mergeCheckbox:checked');
+  let rawNames = [];
+  checked.forEach(cb => {
+    rawNames = rawNames.concat(JSON.parse(cb.dataset.rawNames));
+  });
+
+  fetch('/api/aliases', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({raw_names: rawNames, target_name: targetName})
+  })
+    .then(r => r.json())
+    .then(() => location.reload())
+    .catch(err => alert('Merge failed: ' + err));
+});
+
+function loadAliases() {
+  fetch('/api/aliases').then(r => r.json()).then(aliases => {
+    const body = document.getElementById('aliasesBody');
+    body.innerHTML = '';
+    if (aliases.length === 0) {
+      body.innerHTML = '<tr><td colspan="3">No manual merges yet.</td></tr>';
+      return;
+    }
+    aliases.forEach(a => {
+      const tr = document.createElement('tr');
+      const rawNameEscaped = a.raw_name.replace(/"/g, '&quot;');
+      tr.innerHTML = `<td>${a.raw_name}</td><td>${a.target_name}</td><td><button class="deleteAliasBtn" data-raw-name="${rawNameEscaped}" style="font-size:0.75rem;">Undo</button></td>`;
+      body.appendChild(tr);
+    });
+    document.querySelectorAll('.deleteAliasBtn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        fetch('/api/aliases/delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({raw_name: btn.dataset.rawName})
+        })
+          .then(r => r.json())
+          .then(() => location.reload())
+          .catch(err => alert('Undo failed: ' + err));
+      });
+    });
+  });
+}
+loadAliases();
 </script>
 </body>
 </html>
