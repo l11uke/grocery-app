@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shopping Lists</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; background: #f7f7f5; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1rem; margin-top: 20px; margin-bottom: 4px; }
+  p.hint { font-size: 0.8rem; color: #777; margin-top: 0; }
+  nav a { font-size: 0.9rem; color: #555; text-decoration: none; margin-right: 4px; }
+  nav a.active { color: #111; font-weight: 600; }
+  .tabs { display: flex; gap: 6px; margin-top: 12px; }
+  .tab-btn { flex: 1; padding: 8px 4px; border: 1px solid #ddd; background: #fff; border-radius: 6px; font-size: 0.85rem; cursor: pointer; }
+  .tab-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #ddd; }
+  .badge { display: inline-block; font-size: 0.7rem; padding: 1px 6px; border-radius: 10px; background: #eef2ff; color: #4338ca; }
+  section { display: none; }
+  section.active { display: block; }
+</style>
+</head>
+<body>
+<nav><a href="/">Upload</a> &nbsp;|&nbsp; <a href="/insights">Insights</a> &nbsp;|&nbsp; <a href="/shopping-lists" class="active">Shopping Lists</a></nav>
+<h1>Shopping Lists</h1>
+<p class="hint">Built from your purchase history. Every category is included — you decide at order time whether to buy fresh items online or in-store.</p>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="weekly">Weekly</button>
+  <button class="tab-btn" data-tab="fortnightly">Fortnightly</button>
+  <button class="tab-btn" data-tab="monthly">Monthly</button>
+</div>
+
+<section id="weekly" class="active">
+  <h2>Weekly List</h2>
+  <table><thead><tr><th>Item</th><th>Category</th><th>Every ~N days</th><th>Avg $</th></tr></thead><tbody id="weeklyBody"></tbody></table>
+</section>
+
+<section id="fortnightly">
+  <h2>Fortnightly List</h2>
+  <p class="hint">Includes everything on the weekly list, plus items on a ~2-week cycle.</p>
+  <table><thead><tr><th>Item</th><th>Category</th><th>Every ~N days</th><th>Avg $</th></tr></thead><tbody id="fortnightlyBody"></tbody></table>
+</section>
+
+<section id="monthly">
+  <h2>Monthly List</h2>
+  <p class="hint">Includes everything above, plus items on a ~monthly cycle.</p>
+  <table><thead><tr><th>Item</th><th>Category</th><th>Every ~N days</th><th>Avg $</th></tr></thead><tbody id="monthlyBody"></tbody></table>
+</section>
+
+<h2>Irregular <span class="badge">order as needed</span></h2>
+<p class="hint">Bought 3+ times, but the timing is too inconsistent to trust a cadence — review manually.</p>
+<table><thead><tr><th>Item</th><th>Category</th><th>Times Bought</th><th>Avg $</th></tr></thead><tbody id="irregularBody"></tbody></table>
+
+<h2>Not Enough Data Yet</h2>
+<p class="hint">Fewer than 3 purchases logged so far — needs more receipts before a pattern can be judged. Check the boxes on items that are really the same thing (e.g. different brands of parmesan) and merge them under one name.</p>
+<div id="mergeControls" style="display:none; margin: 8px 0; padding: 8px; background: #eef2ff; border-radius: 6px;">
+  <input type="text" id="mergeTargetName" placeholder="Merge selected as..." style="width: 60%; padding: 6px; font-size: 0.85rem;">
+  <button id="mergeBtn" class="tab-btn" style="width: auto; padding: 6px 12px;">Merge</button>
+</div>
+<table><thead><tr><th></th><th>Item</th><th>Category</th><th>Times Bought</th></tr></thead><tbody id="insufficientBody"></tbody></table>
+
+<h2>Manual Item Aliases</h2>
+<p class="hint">Merges you've set up by hand. Delete one if it turns out to be wrong.</p>
+<table><thead><tr><th>Raw name</th><th>Merged as</th><th></th></tr></thead><tbody id="aliasesBody"></tbody></table>
+
+<script>
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+let insufficientItems = [];
+
+fetch('/api/shopping-lists').then(r => r.json()).then(data => {
+  function fillCadence(bodyId, items) {
+    const body = document.getElementById(bodyId);
+    if (items.length === 0) {
+      body.innerHTML = '<tr><td colspan="4">Nothing here yet.</td></tr>';
+      return;
+    }
+    items.forEach(i => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i.name}</td><td>${i.category}</td><td>${i.avg_interval_days}</td><td>$${i.avg_spend.toFixed(2)}</td>`;
+      body.appendChild(tr);
+    });
+  }
+
+  fillCadence('weeklyBody', data.weekly);
+  fillCadence('fortnightlyBody', data.fortnightly);
+  fillCadence('monthlyBody', data.monthly);
+
+  const irregularBody = document.getElementById('irregularBody');
+  if (data.irregular.length === 0) {
+    irregularBody.innerHTML = '<tr><td colspan="4">Nothing here yet.</td></tr>';
+  }
+  data.irregular.forEach(i => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i.name}</td><td>${i.category}</td><td>${i.purchase_count}</td><td>$${i.avg_spend.toFixed(2)}</td>`;
+    irregularBody.appendChild(tr);
+  });
+
+  insufficientItems = data.insufficient_data;
+  renderInsufficient();
+});
+
+function renderInsufficient() {
+  const body = document.getElementById('insufficientBody');
+  body.innerHTML = '';
+  if (insufficientItems.length === 0) {
+    body.innerHTML = '<tr><td colspan="4">Nothing here yet.</td></tr>';
+    return;
+  }
+  insufficientItems.forEach((i, idx) => {
+    const tr = document.createElement('tr');
+    // raw_names may hold multiple already-merged variants — store all of
+    // them on the checkbox so a further merge captures every one.
+    const rawNamesJson = JSON.stringify(i.raw_names || [i.name]).replace(/"/g, '&quot;');
+    tr.innerHTML = `<td><input type="checkbox" class="mergeCheckbox" data-raw-names="${rawNamesJson}"></td><td>${i.name}</td><td>${i.category}</td><td>${i.purchase_count}</td>`;
+    body.appendChild(tr);
+  });
+
+  document.querySelectorAll('.mergeCheckbox').forEach(cb => {
+    cb.addEventListener('change', updateMergeControlsVisibility);
+  });
+}
+
+function updateMergeControlsVisibility() {
+  const checked = document.querySelectorAll('.mergeCheckbox:checked');
+  document.getElementById('mergeControls').style.display = checked.length >= 2 ? 'block' : 'none';
+}
+
+document.getElementById('mergeBtn').addEventListener('click', () => {
+  const targetName = document.getElementById('mergeTargetName').value.trim();
+  if (!targetName) {
+    alert('Type a name to merge these items under.');
+    return;
+  }
+  const checked = document.querySelectorAll('.mergeCheckbox:checked');
+  let rawNames = [];
+  checked.forEach(cb => {
+    rawNames = rawNames.concat(JSON.parse(cb.dataset.rawNames));
+  });
+
+  fetch('/api/aliases', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({raw_names: rawNames, target_name: targetName})
+  })
+    .then(r => r.json())
+    .then(() => location.reload())
+    .catch(err => alert('Merge failed: ' + err));
+});
+
+function loadAliases() {
+  fetch('/api/aliases').then(r => r.json()).then(aliases => {
+    const body = document.getElementById('aliasesBody');
+    body.innerHTML = '';
+    if (aliases.length === 0) {
+      body.innerHTML = '<tr><td colspan="3">No manual merges yet.</td></tr>';
+      return;
+    }
+    aliases.forEach(a => {
+      const tr = document.createElement('tr');
+      const rawNameEscaped = a.raw_name.replace(/"/g, '&quot;');
+      tr.innerHTML = `<td>${a.raw_name}</td><td>${a.target_name}</td><td><button class="deleteAliasBtn" data-raw-name="${rawNameEscaped}" style="font-size:0.75rem;">Undo</button></td>`;
+      body.appendChild(tr);
+    });
+    document.querySelectorAll('.deleteAliasBtn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        fetch('/api/aliases/delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({raw_name: btn.dataset.rawName})
+        })
+          .then(r => r.json())
+          .then(() => location.reload())
+          .catch(err => alert('Undo failed: ' + err));
+      });
+    });
+  });
+}
+loadAliases();
+</script>
+</body>
+</html>

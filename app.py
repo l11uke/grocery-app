@@ -73,6 +73,39 @@ def api_shopping_lists():
     return jsonify(db.get_shopping_lists())
 
 
+@app.route("/api/aliases", methods=["GET"])
+def api_get_aliases():
+    return jsonify(db.get_item_aliases())
+
+
+@app.route("/api/aliases", methods=["POST"])
+def api_add_aliases():
+    """Merges one or more raw item names under a chosen target name.
+    Body: {"raw_names": [...], "target_name": "..."}."""
+    data = request.get_json(force=True)
+    raw_names = data.get("raw_names", [])
+    target_name = (data.get("target_name") or "").strip()
+
+    if not raw_names or not target_name:
+        return jsonify({"error": "raw_names and target_name are both required"}), 400
+
+    db.add_item_aliases(raw_names, target_name)
+    return jsonify({"merged": raw_names, "target_name": target_name})
+
+
+@app.route("/api/aliases/delete", methods=["POST"])
+def api_delete_alias():
+    """POST rather than DELETE with a path param — raw item names can
+    contain '/', '&', quotes, etc. that don't survive URL path encoding
+    cleanly. Body: {"raw_name": "..."}."""
+    data = request.get_json(force=True)
+    raw_name = data.get("raw_name")
+    if not raw_name:
+        return jsonify({"error": "raw_name is required"}), 400
+    db.remove_item_alias(raw_name)
+    return jsonify({"deleted": raw_name})
+
+
 @app.route("/api/insights")
 def api_insights():
     return jsonify({
