@@ -91,9 +91,31 @@ def _compute_item_intervals(min_occurrences=3):
 
     scored, insufficient = [], []
     for (name, category), item_rows in grouped.items():
-        dates = sorted({date.fromisoformat(r["purchase_date"]) for r in item_rows})
+        # Skip rows with a missing/unparseable date rather than crashing
+        # the whole request. A single bad receipt (e.g. date unreadable on
+        # the photo, saved as an empty string) shouldn't take down every
+        # other item's scoring.
+        valid_dates = set()
+        for r in item_rows:
+            raw = r["purchase_date"]
+            if not raw:
+                continue
+            try:
+                valid_dates.add(date.fromisoformat(raw))
+            except ValueError:
+                continue
+
+        if not valid_dates:
+            # Every row for this item had a bad date — nothing to score.
+            continue
+
+        dates = sorted(valid_dates)
+        # avg_spend should only reflect rows we could actually date, so it
+        # stays consistent with purchase_count below.
+        valid_rows = [r for r in item_rows if r["purchase_date"] in
+                      {d.isoformat() for d in valid_dates}]
         purchase_count = len(dates)
-        avg_spend = round(mean(r["line_total"] for r in item_rows), 2)
+        avg_spend = round(mean(r["line_total"] for r in valid_rows), 2)
         first_seen, last_seen = dates[0].isoformat(), dates[-1].isoformat()
 
         if purchase_count < min_occurrences:
